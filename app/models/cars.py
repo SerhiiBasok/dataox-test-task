@@ -6,7 +6,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.models.base import Base
 
 
-class Cars(Base):
+class CarModel(Base):
     __tablename__ = "cars"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
