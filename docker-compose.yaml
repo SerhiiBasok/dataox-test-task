@@ -8,6 +8,8 @@ services:
       - "${POSTGRES_PORT}:${POSTGRES_INTERNAL_PORT}"
     volumes:
       - my_db:/var/lib/postgresql/data
+    environment:
+      TZ: ${POSTGRES_TZ}
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}" ]
       interval: 5s
@@ -21,6 +23,20 @@ services:
         condition: service_healthy
     working_dir: /app
     command: [ "python", "-m", "app.config.init_db" ]
+
+  parser:
+    build:
+      context: .
+    env_file:
+      - .env
+    ports:
+      - "8001:8000"
+    volumes:
+      - ./dumps:/app/dumps
+    command: python app/parser/parser.py
+    depends_on:
+      postgres:
+        condition: service_healthy
 
 volumes:
   my_db:
