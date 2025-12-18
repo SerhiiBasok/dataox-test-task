@@ -1,0 +1,59 @@
+services:
+  postgres:
+    image: postgres:15
+    restart: always
+    env_file:
+      - .env
+    ports:
+      - "${POSTGRES_PORT}:${POSTGRES_INTERNAL_PORT}"
+    volumes:
+      - my_db:/var/lib/postgresql/data
+    environment:
+      TZ: ${TZ}
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  migrations:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    working_dir: /app
+    command: [ "python", "-m", "app.config.init_db" ]
+
+  parser:
+    build:
+      context: .
+    env_file:
+      - .env
+    ports:
+      - "8001:8000"
+    volumes:
+      - ./dumps:/app/dumps
+    command: python app/parser/parser.py
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  dumper:
+    build:
+      context: .
+    env_file:
+      - .env
+    volumes:
+      - ./dumps:/app/dumper/dumps
+    command: python -m app.dumper.scheduler
+    depends_on:
+      postgres:
+        condition: service_healthy
+      parser:
+        condition: service_started
+    restart: always
+    environment:
+      TZ: ${TZ}
+
+volumes:
+  my_db:
