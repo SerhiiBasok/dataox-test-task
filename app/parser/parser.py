@@ -27,7 +27,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 load_dotenv()
 BASE_URL = os.getenv("BASE_URL")
-PAGE_LIMIT = os.getenv("PAGE_LIMIT")
+PAGE_LIMIT = int(os.getenv("PAGE_LIMIT", "1"))
 
 
 @dataclasses.dataclass
