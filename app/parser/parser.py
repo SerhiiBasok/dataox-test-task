@@ -2,6 +2,13 @@ import dataclasses
 import logging
 import sys
 import os
+from datetime import datetime, timezone
+
+import httpx
+from bs4 import BeautifulSoup, Tag
+from dotenv import load_dotenv
+
+# from playwright.async_api import async_playwright
 
 from app.config.db import AsyncSession
 from app.config.init_db import init_db
@@ -12,15 +19,11 @@ from app.parser.extract_data import (
     extract_images_count,
     extract_vin,
     extract_car_number,
-    extract_phone,
+    extract_number,
 )
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-import datetime
-import httpx
-from bs4 import BeautifulSoup, Tag
-from dotenv import load_dotenv
 
 load_dotenv()
 BASE_URL = os.getenv("BASE_URL")
@@ -33,12 +36,12 @@ class Car:
     price_usd: int
     odometer: int
     username: str
-    phone_number: int | None
+    # phone_number: int
     image_url: str
     images_count: int
     car_number: str
     car_vin: str
-    datetime_found: datetime.datetime
+    datetime_found: datetime
 
 
 logging.basicConfig(
@@ -51,12 +54,12 @@ logging.basicConfig(
 )
 
 
-async def parse_single_car(
-    client: httpx.AsyncClient,
-    car: Tag,
-) -> Car:
+async def parse_single_car(client: httpx.AsyncClient, car: Tag) -> Car:
     url = car.select_one(".m-link-ticket")["href"]
+    if "/newauto/" in url:
+        return None
 
+    await asyncio.sleep(1.5)
     response = await client.get(url)
     soup = BeautifulSoup(response.text, "html.parser")
 
@@ -77,9 +80,9 @@ async def parse_single_car(
 
     car_number = extract_car_number(soup)
 
-    phone_number = await extract_phone(url)
+    # phone_number = await extract_number(url)
 
-    found_at = datetime.datetime.utcnow()
+    found_at = datetime.now(timezone.utc)
 
     return Car(
         url=url,
@@ -87,7 +90,7 @@ async def parse_single_car(
         price_usd=price_usd,
         odometer=odometer,
         username=username,
-        phone_number=phone_number,
+        # phone_number=phone_number,
         image_url=image_url,
         images_count=images_count,
         car_number=car_number,
@@ -105,8 +108,9 @@ async def car_exists(session: AsyncSession, url: str) -> bool:
 
 async def get_home_cars():
     page = 1
+    limit = 1
     async with httpx.AsyncClient() as client, AsyncSession() as session:
-        while True:
+        while page <= limit:
             logging.info(f"Start parsing for page {page}")
             url = f"{BASE_URL}?page={page}"
             response = await client.get(url)
@@ -120,6 +124,9 @@ async def get_home_cars():
             for car_card in car_cards:
                 car = await parse_single_car(client, car_card)
 
+                if car is None:
+                    continue
+
                 if await car_exists(session, car.url):
                     logging.info(f"Car {car.url} already exists, skipping")
                     continue
@@ -130,7 +137,7 @@ async def get_home_cars():
                     price_usd=car.price_usd,
                     odometer=car.odometer,
                     username=car.username,
-                    phone_number=car.phone_number,
+                    # phone_number=car.phone_number,
                     image_url=car.image_url,
                     images_count=car.images_count,
                     car_number=car.car_number,
@@ -138,6 +145,7 @@ async def get_home_cars():
                     datetime_found=car.datetime_found,
                 )
                 session.add(db_car)
+
             await session.commit()
             page += 1
 
