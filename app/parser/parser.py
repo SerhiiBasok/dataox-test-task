@@ -123,9 +123,9 @@ async def get_home_cars():
         )
 
         async with httpx.AsyncClient(timeout=30.0) as client, AsyncSession() as session:
-            limit = 1
-            while PAGE_LIMIT <= limit:
-                url = f"{BASE_URL}?page={PAGE_LIMIT}"
+            page_num = 1
+            while page_num <= PAGE_LIMIT:
+                url = f"{BASE_URL}?page={page_num}"
                 try:
                     response = await client.get(url)
                     soup = BeautifulSoup(response.text, "html.parser")
