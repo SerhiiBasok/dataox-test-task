@@ -27,6 +27,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 load_dotenv()
 BASE_URL = os.getenv("BASE_URL")
+PAGE_LIMIT = os.getenv("PAGE_LIMIT")
 
 
 @dataclasses.dataclass
@@ -122,10 +123,9 @@ async def get_home_cars():
         )
 
         async with httpx.AsyncClient(timeout=30.0) as client, AsyncSession() as session:
-            page_num = 1
             limit = 1
-            while page_num <= limit:
-                url = f"{BASE_URL}?page={page_num}"
+            while PAGE_LIMIT <= limit:
+                url = f"{BASE_URL}?page={PAGE_LIMIT}"
                 try:
                     response = await client.get(url)
                     soup = BeautifulSoup(response.text, "html.parser")
