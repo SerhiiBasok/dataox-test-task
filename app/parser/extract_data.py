@@ -1,9 +1,9 @@
+import asyncio
 import random
 import re
-from playwright.async_api import Page, async_playwright
+from playwright.async_api import Browser
 from bs4 import Tag
 from bs4 import BeautifulSoup
-import asyncio
 
 
 VIN_RE = re.compile(r"[A-HJ-NPR-Z0-9]{17}")
@@ -63,19 +63,77 @@ def extract_odometer(car_card: Tag) -> int:
         return 0
 
 
-async def extract_number(url: str) -> str:
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        page = await browser.new_page()
+PHONE_RE = re.compile(r"[^\d]+")
 
-        await page.goto(url)
-        await page.click('#sellerInfo button[data-action="showBottomPopUp"]')
 
-        phone_link = await page.wait_for_selector('a.action-wrapper-link[href^="tel:"]')
+async def extract_number(url: str, browser: Browser) -> int | None:
+    # Use a fresh context for each car to clear cookies/cache, but ensure it's closed
+    context = await browser.new_context(
+        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        viewport={"width": 1280, "height": 720},
+    )
 
-        phone = (await phone_link.get_attribute("href")).replace("tel:", "")
-        phone_number = re.sub(r"[^\d+]", "", phone)
-        if not phone_number.startswith("38"):
-            phone_number = "38" + phone_number[-10:]
-        await browser.close()
-        return int(phone_number)
+    # Anti-detection: Add extra headers
+    await context.set_extra_http_headers(
+        {"Accept-Language": "en-US,en;q=0.9", "Referer": "https://www.google.com/"}
+    )
+
+    page = await context.new_page()
+
+    try:
+        await asyncio.sleep(random.uniform(1.0, 3.0))
+        await page.goto(url, wait_until="load", timeout=60000)
+        await page.mouse.wheel(0, 400)
+        await asyncio.sleep(random.uniform(0.5, 1.5))
+
+        button_selectors = [
+            '#sellerInfo button[data-action="showBottomPopUp"]',
+            ".phones_list.mb-15 .m-link-ticket",
+            "span.phone_show_link",
+        ]
+
+        show_button = None
+        for selector in button_selectors:
+            show_button = page.locator(selector).first
+            if await show_button.is_visible():
+                break
+
+        if show_button:
+            await show_button.click()
+            # Wait for the popup/number to appear
+            await asyncio.sleep(random.uniform(1, 2))
+
+        # 5. Extract the text from the call button or the reveal area
+        phone_selectors = [
+            ".popup-inner button[data-action='call']",
+            "div.list-phone a",
+            ".phone",
+        ]
+
+        raw_phone = None
+        for selector in phone_selectors:
+            phone_el = page.locator(selector).first
+            if await phone_el.is_visible():
+                raw_phone = await phone_el.inner_text()
+                break
+
+        if not raw_phone:
+            return None
+
+        phone_digits = PHONE_RE.sub("", raw_phone)
+
+        if len(phone_digits) == 10 and phone_digits.startswith("0"):
+            phone_digits = "38" + phone_digits
+        elif len(phone_digits) == 9:
+            phone_digits = "380" + phone_digits
+        elif not phone_digits.startswith("38") and len(phone_digits) >= 10:
+            phone_digits = "38" + phone_digits[-10:]
+
+        return int(phone_digits)
+
+    except Exception as e:
+        print(f"Error extracting phone for {url}: {e}")
+        return None
+    finally:
+        await page.close()
+        await context.close()
