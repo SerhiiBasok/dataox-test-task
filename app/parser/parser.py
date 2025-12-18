@@ -8,7 +8,7 @@ import httpx
 from bs4 import BeautifulSoup, Tag
 from dotenv import load_dotenv
 
-# from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright
 
 from app.config.db import AsyncSession
 from app.config.init_db import init_db
@@ -36,7 +36,7 @@ class Car:
     price_usd: int
     odometer: int
     username: str
-    # phone_number: int
+    phone_number: int
     image_url: str
     images_count: int
     car_number: str
@@ -54,7 +54,7 @@ logging.basicConfig(
 )
 
 
-async def parse_single_car(client: httpx.AsyncClient, car: Tag) -> Car:
+async def parse_single_car(client: httpx.AsyncClient, car: Tag, browser) -> Car:
     url = car.select_one(".m-link-ticket")["href"]
     if "/newauto/" in url:
         return None
@@ -80,7 +80,11 @@ async def parse_single_car(client: httpx.AsyncClient, car: Tag) -> Car:
 
     car_number = extract_car_number(soup)
 
-    # phone_number = await extract_number(url)
+    try:
+        phone_number = await extract_number(url, browser)
+    except Exception as e:
+        logging.warning(f"Cannot extract phone number for {url}: {e}")
+        phone_number = None
 
     found_at = datetime.now(timezone.utc)
 
@@ -90,7 +94,7 @@ async def parse_single_car(client: httpx.AsyncClient, car: Tag) -> Car:
         price_usd=price_usd,
         odometer=odometer,
         username=username,
-        # phone_number=phone_number,
+        phone_number=phone_number,
         image_url=image_url,
         images_count=images_count,
         car_number=car_number,
@@ -107,47 +111,62 @@ async def car_exists(session: AsyncSession, url: str) -> bool:
 
 
 async def get_home_cars():
-    page = 1
-    limit = 1
-    async with httpx.AsyncClient() as client, AsyncSession() as session:
-        while page <= limit:
-            logging.info(f"Start parsing for page {page}")
-            url = f"{BASE_URL}?page={page}"
-            response = await client.get(url)
-            soup = BeautifulSoup(response.text, "html.parser")
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(
+            headless=True,
+            args=[
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
+            ],
+        )
 
-            car_cards = soup.select(".content-bar")
-            if not car_cards:
-                logging.info("No cars found, stop parsing")
-                break
+        async with httpx.AsyncClient(timeout=30.0) as client, AsyncSession() as session:
+            page_num = 1
+            limit = 1
+            while page_num <= limit:
+                url = f"{BASE_URL}?page={page_num}"
+                try:
+                    response = await client.get(url)
+                    soup = BeautifulSoup(response.text, "html.parser")
+                    car_cards = soup.select(".content-bar")
 
-            for car_card in car_cards:
-                car = await parse_single_car(client, car_card)
+                    for car_card in car_cards:
+                        car = await parse_single_car(client, car_card, browser)
+                        if not car:
+                            continue
 
-                if car is None:
-                    continue
+                        try:
+                            db_car = CarModel(
+                                url=car.url,
+                                title=car.title,
+                                price_usd=car.price_usd,
+                                odometer=car.odometer,
+                                username=car.username,
+                                phone_number=car.phone_number,
+                                image_url=car.image_url,
+                                images_count=car.images_count,
+                                car_number=car.car_number,
+                                car_vin=car.car_vin,
+                                datetime_found=car.datetime_found,
+                            )
+                            session.add(db_car)
+                        except Exception as e:
+                            logging.error(f"Failed to add car to session: {e}")
+                            continue
 
-                if await car_exists(session, car.url):
-                    logging.info(f"Car {car.url} already exists, skipping")
-                    continue
+                    try:
+                        await session.commit()
+                    except Exception as e:
+                        logging.error(f"Failed to commit page {page_num}: {e}")
+                        await session.rollback()
 
-                db_car = CarModel(
-                    url=car.url,
-                    title=car.title,
-                    price_usd=car.price_usd,
-                    odometer=car.odometer,
-                    username=car.username,
-                    # phone_number=car.phone_number,
-                    image_url=car.image_url,
-                    images_count=car.images_count,
-                    car_number=car.car_number,
-                    car_vin=car.car_vin,
-                    datetime_found=car.datetime_found,
-                )
-                session.add(db_car)
+                except Exception as e:
+                    logging.error(f"Error fetching page {page_num}: {e}")
 
-            await session.commit()
-            page += 1
+                page_num += 1
+
+        await browser.close()
 
 
 async def main():
