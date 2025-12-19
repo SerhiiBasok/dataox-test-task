@@ -67,13 +67,11 @@ PHONE_RE = re.compile(r"[^\d]+")
 
 
 async def extract_number(url: str, browser: Browser) -> int | None:
-    # Use a fresh context for each car to clear cookies/cache, but ensure it's closed
     context = await browser.new_context(
         user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
         viewport={"width": 1280, "height": 720},
     )
 
-    # Anti-detection: Add extra headers
     await context.set_extra_http_headers(
         {"Accept-Language": "en-US,en;q=0.9", "Referer": "https://www.google.com/"}
     )
@@ -100,10 +98,8 @@ async def extract_number(url: str, browser: Browser) -> int | None:
 
         if show_button:
             await show_button.click()
-            # Wait for the popup/number to appear
             await asyncio.sleep(random.uniform(1, 2))
 
-        # 5. Extract the text from the call button or the reveal area
         phone_selectors = [
             ".popup-inner button[data-action='call']",
             "div.list-phone a",
