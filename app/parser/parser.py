@@ -136,6 +136,10 @@ async def get_home_cars():
                         if not car:
                             continue
 
+                        if await car_exists(session, car.url):
+                            logging.info(f"Car already exists, skipping: {car.url}")
+                            continue
+
                         try:
                             db_car = CarModel(
                                 url=car.url,
