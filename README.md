@@ -2,6 +2,8 @@
 
 This project collects data about used cars from AutoRia and saves it into a PostgreSQL database. It also performs daily database dumps.
 
+The scraper is fully **asynchronous** and uses **parallel workers** with `asyncio.gather()` and `Semaphore` for efficient concurrent processing.
+
 ---
 
 ## Quick Start
@@ -60,4 +62,5 @@ docker compose run --rm dumper python -m app.dumper.run_dump_now
 
 * All settings are stored in the `.env` file.
 * Duplicate entries are removed at the database level.
+* Parser uses configurable number of workers (`WORKERS` env variable) for parallel processing.
 * The project fully meets the requirements of the DataOx test task.
